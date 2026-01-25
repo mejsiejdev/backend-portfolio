@@ -4,11 +4,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import create_db_and_tables
 
 from certificates import router as certificates_router
+from projects import router as projects_router
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
@@ -20,8 +22,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.include_router(certificates_router)
+app.include_router(projects_router)
 
 
 @app.on_event("startup")
