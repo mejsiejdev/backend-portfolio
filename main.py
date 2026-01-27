@@ -12,11 +12,13 @@ from database import create_db_and_tables
 from certificates import router as certificates_router
 from projects import router as projects_router
 
+origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
