@@ -1,79 +1,149 @@
 import uuid
-import os
-from fastapi import UploadFile
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+import json
+from fastapi import UploadFile, File, Form, APIRouter, Depends, HTTPException
 
-from database import get_session
+from database import supabase, IMAGES_BUCKET
 from auth import get_api_key
-from .models import Project
-from .schemas import ProjectRead, ProjectCreate, ProjectUpdate
+from .schemas import ProjectRead
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-
-@router.get("/", response_model=list[ProjectRead])
-def read_projects(session: Session = Depends(get_session)):
-    projects = session.exec(select(Project)).all()
-    return projects
+ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png"]
 
 
-@router.post("/", response_model=ProjectCreate)
-def create_project(
-    project: ProjectCreate,
-    session: Session = Depends(get_session),
-    _: str = Depends(get_api_key),
-):
-    db_project = Project.model_validate(project)
-    session.add(db_project)
-    session.commit()
-    session.refresh(db_project)
-    return db_project
+def get_public_url(path: str) -> str:
+    return supabase.storage.from_(IMAGES_BUCKET).get_public_url(path)
 
 
-@router.post("/upload")
-async def upload_image(file: UploadFile, _: str = Depends(get_api_key)):
-    allowed_types = ["image/jpeg", "image/png", "image/webp"]
-    if file.content_type not in allowed_types:
+def delete_image_from_storage(url: str) -> None:
+    if not url:
+        return
+    parts = url.split(f"{IMAGES_BUCKET}/")
+    path = parts[1] if len(parts) > 1 else None
+    if path:
+        try:
+            supabase.storage.from_(IMAGES_BUCKET).remove([path])
+        except Exception:
+            pass
+
+
+def parse_tags(tags: str) -> list[str]:
+    if not tags or tags == "[]":
+        return []
+    try:
+        return json.loads(tags)
+    except json.JSONDecodeError:
+        return [tag.strip() for tag in tags.split(",") if tag.strip()]
+
+
+async def upload_image_file(file: UploadFile) -> str:
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(
-            status_code=400, detail=f"Invalid file type. Allowed: {allowed_types}"
+            status_code=400, detail=f"Invalid file type. Allowed: {ALLOWED_IMAGE_TYPES}"
         )
-
     ext = file.filename.split(".")[-1] if file.filename else "jpg"
     file_name = f"{uuid.uuid4()}.{ext}"
-    file_path = os.path.join("static", "images", file_name)
+    content = await file.read()
 
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
+    try:
+        supabase.storage.from_(IMAGES_BUCKET).upload(
+            file_name, content, {"content-type": file.content_type}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
 
-    return {"path": f"/static/images/{file_name}"}
+    return get_public_url(file_name)
 
 
-@router.put("/{id}", response_model=ProjectUpdate)
-def update_project(
-    id: int,
-    project: ProjectUpdate,
-    session: Session = Depends(get_session),
+@router.get("/", response_model=list[ProjectRead])
+def read_projects():
+    response = (
+        supabase.table("projects").select("*").order("created_at", desc=True).execute()
+    )
+    return response.data
+
+
+@router.post("/", response_model=ProjectRead)
+async def create_project(
+    name: str = Form(...),
+    description: str = Form(...),
+    demo: str = Form(...),
+    tags: str = Form("[]"),
+    code: str | None = Form(None),
+    image: UploadFile = File(...),
+    image_dark: UploadFile | None = File(None),
     _: str = Depends(get_api_key),
 ):
-    db_project = session.get(Project, id)
-    if not db_project:
+    image_url = await upload_image_file(image)
+    image_dark_url = await upload_image_file(image_dark) if image_dark else None
+
+    project_data = {
+        "name": name,
+        "description": description,
+        "demo": demo,
+        "tags": parse_tags(tags),
+        "code": code,
+        "image": image_url,
+        "image_dark": image_dark_url,
+    }
+
+    response = supabase.table("projects").insert(project_data).execute()
+    return response.data[0]
+
+
+@router.put("/{id}", response_model=ProjectRead)
+async def update_project(
+    id: int,
+    name: str | None = Form(None),
+    description: str | None = Form(None),
+    demo: str | None = Form(None),
+    tags: str | None = Form(None),
+    code: str | None = Form(None),
+    image: UploadFile | None = File(None),
+    image_dark: UploadFile | None = File(None),
+    _: str = Depends(get_api_key),
+):
+    existing = supabase.table("projects").select("*").eq("id", id).execute()
+    if not existing.data:
         raise HTTPException(status_code=404, detail="Project not found")
-    project_data = project.model_dump(exclude_unset=True)
-    db_project.sqlmodel_update(project_data)
-    session.add(db_project)
-    session.commit()
-    session.refresh(db_project)
-    return db_project
+
+    old_project = existing.data[0]
+    update_data = {}
+
+    if name is not None:
+        update_data["name"] = name
+    if description is not None:
+        update_data["description"] = description
+    if demo is not None:
+        update_data["demo"] = demo
+    if tags is not None:
+        update_data["tags"] = parse_tags(tags)
+    if code is not None:
+        update_data["code"] = code
+
+    if image:
+        delete_image_from_storage(old_project.get("image"))
+        update_data["image"] = await upload_image_file(image)
+    if image_dark:
+        delete_image_from_storage(old_project.get("image_dark"))
+        update_data["image_dark"] = await upload_image_file(image_dark)
+
+    if not update_data:
+        return old_project
+
+    response = supabase.table("projects").update(update_data).eq("id", id).execute()
+    return response.data[0]
 
 
 @router.delete("/{id}", response_model=ProjectRead)
-def delete_project(
-    id: int, session: Session = Depends(get_session), _: str = Depends(get_api_key)
-):
-    db_project = session.get(Project, id)
-    if not db_project:
+def delete_project(id: int, _: str = Depends(get_api_key)):
+    existing = supabase.table("projects").select("*").eq("id", id).execute()
+    if not existing.data:
         raise HTTPException(status_code=404, detail="Project not found")
-    session.delete(db_project)
-    session.commit()
-    return db_project
+
+    project = existing.data[0]
+    delete_image_from_storage(project.get("image"))
+    delete_image_from_storage(project.get("image_dark"))
+
+    supabase.table("projects").delete().eq("id", id).execute()
+    return project

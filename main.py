@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from certificates import router as certificates_router
-#from projects import router as projects_router
+from projects import router as projects_router
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
@@ -21,4 +21,4 @@ app.add_middleware(
 )
 
 app.include_router(certificates_router)
-#app.include_router(projects_router)
+app.include_router(projects_router)
