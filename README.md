@@ -31,6 +31,7 @@ REST API backend for my [portfolio](https://github.com/mejsiejdev/portfolio), pr
 
 | Method | Endpoint             | Description                          |
 | ------ | -------------------- | ------------------------------------ |
+| GET    | `/health`            | Health check                         |
 | GET    | `/projects/`         | List all projects (with caching)     |
 | POST   | `/projects/`         | Create a project                     |
 | PUT    | `/projects/{id}`     | Update a project                     |
