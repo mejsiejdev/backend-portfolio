@@ -5,6 +5,7 @@ from fastapi import UploadFile, File, Form, APIRouter, Depends, HTTPException
 from database import supabase, IMAGES_BUCKET
 from auth import get_api_key
 from .schemas import ProjectRead
+from core.cache import cached, invalidate_cache
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -56,7 +57,8 @@ async def upload_image_file(file: UploadFile) -> str:
 
 
 @router.get("/", response_model=list[ProjectRead])
-def read_projects():
+@cached(prefix="projects")
+async def read_projects():
     response = (
         supabase.table("projects").select("*").order("created_at", desc=True).execute()
     )
@@ -86,8 +88,8 @@ async def create_project(
         "image": image_url,
         "image_dark": image_dark_url,
     }
-
     response = supabase.table("projects").insert(project_data).execute()
+    await invalidate_cache("projects:*")
     return response.data[0]
 
 
@@ -132,11 +134,12 @@ async def update_project(
         return old_project
 
     response = supabase.table("projects").update(update_data).eq("id", id).execute()
+    await invalidate_cache("projects:*")
     return response.data[0]
 
 
 @router.delete("/{id}", response_model=ProjectRead)
-def delete_project(id: int, _: str = Depends(get_api_key)):
+async def delete_project(id: int, _: str = Depends(get_api_key)):
     existing = supabase.table("projects").select("*").eq("id", id).execute()
     if not existing.data:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -146,4 +149,5 @@ def delete_project(id: int, _: str = Depends(get_api_key)):
     delete_image_from_storage(project.get("image_dark"))
 
     supabase.table("projects").delete().eq("id", id).execute()
+    await invalidate_cache("projects:*")
     return project
