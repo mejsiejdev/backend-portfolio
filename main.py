@@ -1,13 +1,15 @@
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from certificates import router as certificates_router
-from projects import router as projects_router
+from certificates import router as certificates_router  # noqa: E402
+from projects import router as projects_router  # noqa: E402
+
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 

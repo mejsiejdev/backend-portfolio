@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel
 from datetime import date
 
+
 class CertificateBase(SQLModel):
     name: str
     issuer: str
