@@ -35,9 +35,13 @@ app.add_middleware(
 app.include_router(certificates_router)
 app.include_router(projects_router)
 
+
 @app.get("/health")
 async def health_check():
-    health = {"status": "healthy", "services": {"database": "healthy", "redis": "healthy"}}
+    health = {
+        "status": "healthy",
+        "services": {"database": "healthy", "redis": "healthy"},
+    }
     try:
         supabase.table("projects").select("id").limit(1).execute()
     except Exception as e:
