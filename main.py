@@ -1,4 +1,4 @@
-import os
+#import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -21,13 +21,13 @@ async def lifespan(app: FastAPI):
     await close_redis_pool()
 
 
-origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+# origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
